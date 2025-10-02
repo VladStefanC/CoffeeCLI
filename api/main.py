@@ -1,14 +1,23 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi_users import FastAPIUsers
+from fastapi_users.authentication import JWTStrategy, AuthenticationBackend, BearerTransport
+from api.users import get_user_manager
+from api.models import User
+from api.schemas import UserRead, UserCreate, UserUpdate
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-#IMPORT MODULES FOR DB
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from api import crud, models, schemas
-from api.database import engine, get_db
-
-#TYPING IMPORT FOR OPTIONAL FIELD VALIDATION
+from api.database import get_async_session, init_db, engine
 from typing import Optional
-#CORS MIDDLE WARE
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import uuid
+import os 
+import random
+import asyncio
+
+
 """
 app.add_middleware(
     CORSMiddleware,
@@ -18,12 +27,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 """
-#random import for math random thats it probably dont need
-import random
 
-models.Base.metadata.create_all(bind = engine)
+
+load_dotenv()
+
+SECRET = os.getenv("SECRET")
 
 app = FastAPI()
+
+def get_jwt_strategy() -> JWTStrategy:
+    return JWTStrategy(secret=SECRET, lifetime_seconds=3600)
+
+bearer_transport = BearerTransport(tokenUrl="auth/jwt/login")
+
+jwt_auth_backend = AuthenticationBackend(
+    name="jwt",
+    transport=bearer_transport,
+    get_strategy=get_jwt_strategy,
+)
+
+fastapi_users = FastAPIUsers[User, uuid.UUID](
+    get_user_manager,
+    [jwt_auth_backend],
+)
+
+app.include_router(
+    fastapi_users.get_auth_router(jwt_auth_backend),
+    prefix = "/auth/jwt",
+    tags=["auth"],
+)
+
+app.include_router(
+    fastapi_users.get_register_router(UserRead,UserCreate),
+    prefix = "/auth",
+    tags = ["auth"],
+)
+
+app.include_router(
+    fastapi_users.get_users_router(UserRead, UserUpdate),
+    prefix = "/users",
+    tags = ["users"],
+)
+
+
+@app.on_event("startup")
+async def on_startup():
+    await init_db()
 
 
 @app.get("/")
@@ -32,65 +81,74 @@ def read_root():
 
 
 @app.post("/recipes/", response_model=schemas.Recipe)
-async def create_recipe(recipe: schemas.RecipeCreate, db: Session = Depends(get_db)):
-    return crud.create_recipe(db, recipe = recipe)
+async def create_recipe(recipe: schemas.RecipeCreate, db: Session = Depends(get_async_session)):
+
+    return await crud.create_recipe(db, recipe = recipe)
 
 @app.get("/recipes/", response_model=list[schemas.Recipe])
-async def read_recipes(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
-    return crud.get_recipes(db, skip=skip, limit=limit)
+async def read_recipes(db: Session = Depends(get_async_session)):
+    result = await db.execute(select(models.Recipe))
+    recipes = result.scalars().all()
+    return recipes
 
 @app.get("/recipes/search", response_model=list[schemas.Recipe])
 async def query_recipes(
-    id: Optional[int] = None,
-    method: Optional[str] = None,
-    name: Optional[str] = None,
-    max_time: Optional[int] = None,
-    db:Session= Depends(get_db)
+    id: Optional[int] = Query(None, description = "Recipe ID"),
+    method: Optional[str] = Query(None, description = "Recipe Method"),
+    name: Optional[str] = Query(None, description = "Recipe Name"),
+    max_time: Optional[int] = Query(None, description = "Recipe Brew Time"),
+    db: AsyncSession = Depends(get_async_session)
 ):
-    q = db.query(models.Recipe)
+    query = select(models.Recipe)
+    
+    if id : 
+        query = query.filter((models.Recipe.id) == id)
     
     if method :
-        q = q.filter(func.lower(models.Recipe.method) == method.lower())
+        query = query.filter(func.lower(models.Recipe.method) == method.lower())
         
     if name: 
        #split into words; all must appear( case insensitive )
        for word in name.strip().split():
-           q = q.filter(models.Recipe.name.ilike(f"%{word}%"))
+           query = query.filter(models.Recipe.name.ilike(f"%{word}%"))
            
-    results = q.all()
+    results = await db.execute(query)
+    recipes = results.scalars().all()
     
     if max_time is not None:
         limit_seconds = max_time * 60
-        results = [r for r in results if r.brew_time and parse_brew_time(r.brew_time) <= limit_seconds]
+        recipes = [r for r in recipes if r.brew_time and parse_brew_time(r.brew_time) <= limit_seconds]
     
-    return results
-
+    return recipes
 
 @app.get("/recipes/{recipe_id}")
-async def read_recipe(recipe_id: int, db: Session = Depends(get_db)):
-    db_recipe = crud.get_recipe(db, recipe_id= recipe_id)
-    if db_recipe is None:
-        raise HTTPException(status_code = 404, detail="Recipe not found")
+async def read_recipe(recipe_id: int, db: Session = Depends(get_async_session)):
+    result = await db.execute(select(models.Recipe).where(models.Recipe.id == recipe_id))
+    db_recipe = result.scalars().first()
+    if db_recipe == None : 
+        raise HTTPException(status_code=404, detail= "Recipe not found")
+    
     return db_recipe
 
 
 
 
 @app.get("/random-recipe", response_model=schemas.Recipe)
-async def random_recipe(db: Session = Depends(get_db)):
+async def random_recipe(db: Session = Depends(get_async_session)):
     result = ( 
-        db.query(models.Recipe)
-            .filter(func.lower(models.Recipe.method) != "cold brew")
-            .order_by(func.random())
-            .first()
+        select(models.Recipe)
+        .filter(func.lower(models.Recipe.method) != "cold brew")
+        .order_by(func.random())
+        .limit(1)
     )
-    if not result : 
+    result = await db.execute(result)
+    recipe = result.scalars().first()
+    if not recipe : 
         raise HTTPException(status_code=404, detail="No recipes availible")
-    return result
+    return recipe
 
 
 def parse_brew_time(time_str : str) -> int:
-    #parse brew time string and return time in seconds
     if "-" in time_str:
         
         time_str = time_str.split("-")[-1].strip()

@@ -1,5 +1,8 @@
 from pydantic import BaseModel
 from typing import Optional
+from fastapi_users import schemas
+import uuid
+
 
 class RecipeBase(BaseModel):
     id : int
@@ -17,5 +20,14 @@ class Recipe(RecipeBase):
     
     class Config:
         orm_mode = True
-        
+
+class UserRead(schemas.BaseUser[uuid.UUID]):
+    pass
+
+class UserCreate(schemas.BaseUserCreate):
+    pass
+
+class UserUpdate(schemas.BaseUserUpdate):
+    pass
+
 
