@@ -1,10 +1,10 @@
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import Integer, String, Text
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID
+from sqlalchemy import Column, Boolean, String
+from sqlalchemy.dialects.postgresql import UUID
+from .database import Base
 import uuid
-
-class Base(DeclarativeBase):
-    pass
 
 
 class Recipe(Base):
@@ -20,5 +20,8 @@ class Recipe(Base):
     
 class User(SQLAlchemyBaseUserTableUUID, Base):
     __tablename__ = "users"
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    username : Mapped[str] = mapped_column(String(100), nullable = True, unique=True)
+
+    
+    
     

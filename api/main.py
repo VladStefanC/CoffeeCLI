@@ -1,32 +1,24 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi_users import FastAPIUsers
 from fastapi_users.authentication import JWTStrategy, AuthenticationBackend, BearerTransport
 from api.users import get_user_manager
 from api.models import User
 from api.schemas import UserRead, UserCreate, UserUpdate
-from sqlalchemy.orm import Session
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from api import crud, models, schemas
-from api.database import get_async_session, init_db, engine
-from typing import Optional
-from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 import uuid
-import os 
-import random
-import asyncio
+import os
+from dotenv import load_dotenv
+from fastapi import FastAPI, Depends, HTTPException, status, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
+from sqlalchemy.future import select
+from sqlalchemy import func
+from . import models, schemas, crud
+from .database import engine, get_async_session, init_db
+from typing import Optional
+from fastapi.middleware.cors import CORSMiddleware  
 
 
-"""
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials = True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-"""
+
+
 
 
 load_dotenv()
@@ -70,6 +62,14 @@ app.include_router(
 )
 
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials = True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.on_event("startup")
 async def on_startup():
     await init_db()
@@ -80,6 +80,7 @@ def read_root():
     return {"message" : "Coffee API is alive!"}
 
 
+
 @app.post("/recipes/", response_model=schemas.Recipe)
 async def create_recipe(recipe: schemas.RecipeCreate, db: Session = Depends(get_async_session)):
 
@@ -87,7 +88,7 @@ async def create_recipe(recipe: schemas.RecipeCreate, db: Session = Depends(get_
 
 @app.get("/recipes/", response_model=list[schemas.Recipe])
 async def read_recipes(db: Session = Depends(get_async_session)):
-    result = await db.execute(select(models.Recipe))
+    result = await db.execute(select(models.Recipe).limit(20))
     recipes = result.scalars().all()
     return recipes
 

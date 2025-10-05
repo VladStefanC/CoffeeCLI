@@ -1,6 +1,9 @@
 from pydantic import BaseModel
 from typing import Optional
 from fastapi_users import schemas
+from fastapi_users.db import SQLAlchemyBaseUserTableUUID
+from sqlalchemy.orm import  Mapped, mapped_column
+from .database import Base
 import uuid
 
 
@@ -22,12 +25,10 @@ class Recipe(RecipeBase):
         orm_mode = True
 
 class UserRead(schemas.BaseUser[uuid.UUID]):
-    pass
-
+    username: str | None = None 
+    
 class UserCreate(schemas.BaseUserCreate):
-    pass
-
+    username: str | None = None 
+    
 class UserUpdate(schemas.BaseUserUpdate):
-    pass
-
-
+    username: str | None = None
