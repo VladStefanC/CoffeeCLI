@@ -1,14 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
-from fastapi_users import schemas
-from fastapi_users.db import SQLAlchemyBaseUserTableUUID
-from sqlalchemy.orm import  Mapped, mapped_column
-from .database import Base
 import uuid
-
+from fastapi_users import schemas as fa_schemas
 
 class RecipeBase(BaseModel):
-    id : int
     name: str
     method: str
     ingredients: str
@@ -20,15 +15,14 @@ class RecipeCreate(RecipeBase):
 
 class Recipe(RecipeBase):
     id: int
-    
-    class Config:
-        orm_mode = True
+    user_id: Optional[uuid.UUID] = None
+    model_config = ConfigDict(from_attributes=True)
 
-class UserRead(schemas.BaseUser[uuid.UUID]):
-    username: str | None = None 
-    
-class UserCreate(schemas.BaseUserCreate):
-    username: str | None = None 
-    
-class UserUpdate(schemas.BaseUserUpdate):
+class UserRead(fa_schemas.BaseUser[uuid.UUID]):
+    username: str | None = None
+
+class UserCreate(fa_schemas.BaseUserCreate):
+    username: str | None = None
+
+class UserUpdate(fa_schemas.BaseUserUpdate):
     username: str | None = None

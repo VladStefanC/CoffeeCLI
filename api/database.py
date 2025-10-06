@@ -14,7 +14,7 @@ if not db_url:
 
 db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
 
-# ✅ Define Base here, not in models.py
+
 class Base(DeclarativeBase):
     pass
 

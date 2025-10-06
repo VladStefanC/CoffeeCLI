@@ -4,6 +4,7 @@ from fastapi_users.db import SQLAlchemyUserDatabase
 from .models import User
 from .database import get_async_session
 from sqlalchemy.ext.asyncio import AsyncSession
+
 import uuid
 import os
 from dotenv import load_dotenv

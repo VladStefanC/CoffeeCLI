@@ -1,32 +1,31 @@
+from fastapi import FastAPI, Depends, HTTPException, Query, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi_users import FastAPIUsers
 from fastapi_users.authentication import JWTStrategy, AuthenticationBackend, BearerTransport
-from api.users import get_user_manager
-from api.models import User
-from api.schemas import UserRead, UserCreate, UserUpdate
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy import func
+from typing import Optional
 import uuid
 import os
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
-from sqlalchemy.future import select
-from sqlalchemy import func
-from . import models, schemas, crud
-from .database import engine, get_async_session, init_db
-from typing import Optional
-from fastapi.middleware.cors import CORSMiddleware  
+
+from api.database import get_async_session, init_db
+from api.users import get_user_manager
+from api import models, schemas, crud
+from api.models import User
 
 
-
-
-
+# ──────────────────────────────────────────────────────────────
+# Setup
+# ──────────────────────────────────────────────────────────────
 
 load_dotenv()
-
 SECRET = os.getenv("SECRET")
 
-app = FastAPI()
+app = FastAPI(title="Coffee Recipes API", version="2.0")
 
+# JWT authentication setup
 def get_jwt_strategy() -> JWTStrategy:
     return JWTStrategy(secret=SECRET, lifetime_seconds=3600)
 
@@ -43,123 +42,229 @@ fastapi_users = FastAPIUsers[User, uuid.UUID](
     [jwt_auth_backend],
 )
 
+current_user = fastapi_users.current_user()
+
+# ──────────────────────────────────────────────────────────────
+# Authentication & Users Routers
+# ──────────────────────────────────────────────────────────────
+
 app.include_router(
     fastapi_users.get_auth_router(jwt_auth_backend),
-    prefix = "/auth/jwt",
+    prefix="/auth/jwt",
     tags=["auth"],
 )
 
 app.include_router(
-    fastapi_users.get_register_router(UserRead,UserCreate),
-    prefix = "/auth",
-    tags = ["auth"],
+    fastapi_users.get_register_router(schemas.UserRead, schemas.UserCreate),
+    prefix="/auth",
+    tags=["auth"],
 )
 
 app.include_router(
-    fastapi_users.get_users_router(UserRead, UserUpdate),
-    prefix = "/users",
-    tags = ["users"],
+    fastapi_users.get_users_router(schemas.UserRead, schemas.UserUpdate),
+    prefix="/users",
+    tags=["users"],
 )
 
+
+
+# ──────────────────────────────────────────────────────────────
+# Middleware
+# ──────────────────────────────────────────────────────────────
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
-    allow_credentials = True,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ──────────────────────────────────────────────────────────────
+# Startup
+# ──────────────────────────────────────────────────────────────
+
 @app.on_event("startup")
 async def on_startup():
+    """Initialize database connection."""
     await init_db()
-
 
 @app.get("/")
 def read_root():
-    return {"message" : "Coffee API is alive!"}
+    return {"message": "☕ Coffee API is alive!"}
 
+# ──────────────────────────────────────────────────────────────
+# Recipes Endpoints
+# ──────────────────────────────────────────────────────────────
 
-
-@app.post("/recipes/", response_model=schemas.Recipe)
-async def create_recipe(recipe: schemas.RecipeCreate, db: Session = Depends(get_async_session)):
-
-    return await crud.create_recipe(db, recipe = recipe)
-
-@app.get("/recipes/", response_model=list[schemas.Recipe])
-async def read_recipes(db: Session = Depends(get_async_session)):
-    result = await db.execute(select(models.Recipe).limit(20))
-    recipes = result.scalars().all()
-    return recipes
-
-@app.get("/recipes/search", response_model=list[schemas.Recipe])
-async def query_recipes(
-    id: Optional[int] = Query(None, description = "Recipe ID"),
-    method: Optional[str] = Query(None, description = "Recipe Method"),
-    name: Optional[str] = Query(None, description = "Recipe Name"),
-    max_time: Optional[int] = Query(None, description = "Recipe Brew Time"),
-    db: AsyncSession = Depends(get_async_session)
+@app.post("/recipes", response_model=schemas.Recipe, status_code=201, tags=["recipes"])
+async def create_recipe(
+    recipe: schemas.RecipeCreate,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_user),
 ):
+    """Create a new recipe owned by the current user."""
+    return await crud.create_recipe(db, recipe, user)
+
+
+@app.get("/recipes", response_model=list[schemas.Recipe], tags=["recipes"])
+async def list_recipes(db: AsyncSession = Depends(get_async_session)):
+    """List all available recipes."""
+    result = await db.execute(select(models.Recipe))
+    return result.scalars().all()
+
+
+@app.get("/recipes/{recipe_id}", response_model=schemas.Recipe, tags=["recipes"])
+async def get_recipe(recipe_id: int, db: AsyncSession = Depends(get_async_session)):
+    """Retrieve a single recipe by ID."""
+    recipe = await db.get(models.Recipe, recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    return recipe
+
+
+@app.get("/recipes/search", response_model=list[schemas.Recipe], tags=["recipes"])
+async def search_recipes(
+    name: Optional[str] = Query(None, description="Filter by recipe name"),
+    method: Optional[str] = Query(None, description="Filter by brewing method"),
+    max_time: Optional[int] = Query(None, description="Filter by maximum brew time (minutes)"),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Search for recipes by name, method, or brew time."""
     query = select(models.Recipe)
-    
-    if id : 
-        query = query.filter((models.Recipe.id) == id)
-    
-    if method :
+    if name:
+        for word in name.strip().split():
+            query = query.filter(models.Recipe.name.ilike(f"%{word}%"))
+    if method:
         query = query.filter(func.lower(models.Recipe.method) == method.lower())
-        
-    if name: 
-       #split into words; all must appear( case insensitive )
-       for word in name.strip().split():
-           query = query.filter(models.Recipe.name.ilike(f"%{word}%"))
-           
-    results = await db.execute(query)
-    recipes = results.scalars().all()
-    
-    if max_time is not None:
-        limit_seconds = max_time * 60
-        recipes = [r for r in recipes if r.brew_time and parse_brew_time(r.brew_time) <= limit_seconds]
-    
+
+    result = await db.execute(query)
+    recipes = result.scalars().all()
+
+    if max_time:
+        recipes = [r for r in recipes if r.brew_time and parse_brew_time(r.brew_time) <= max_time * 60]
+
     return recipes
 
-@app.get("/recipes/{recipe_id}")
-async def read_recipe(recipe_id: int, db: Session = Depends(get_async_session)):
-    result = await db.execute(select(models.Recipe).where(models.Recipe.id == recipe_id))
-    db_recipe = result.scalars().first()
-    if db_recipe == None : 
-        raise HTTPException(status_code=404, detail= "Recipe not found")
-    
-    return db_recipe
 
-
-
-
-@app.get("/random-recipe", response_model=schemas.Recipe)
-async def random_recipe(db: Session = Depends(get_async_session)):
-    result = ( 
+@app.get("/recipes/random", response_model=schemas.Recipe, tags=["recipes"])
+async def random_recipe(db: AsyncSession = Depends(get_async_session)):
+    """Get a random recipe (excluding cold brew)."""
+    result = await db.execute(
         select(models.Recipe)
         .filter(func.lower(models.Recipe.method) != "cold brew")
         .order_by(func.random())
         .limit(1)
     )
-    result = await db.execute(result)
     recipe = result.scalars().first()
-    if not recipe : 
-        raise HTTPException(status_code=404, detail="No recipes availible")
+    if not recipe:
+        raise HTTPException(status_code=404, detail="No recipes available")
     return recipe
 
 
-def parse_brew_time(time_str : str) -> int:
+# ──────────────────────────────────────────────────────────────
+# User-Specific Recipes
+# ──────────────────────────────────────────────────────────────
+
+@app.get("/users/me/recipes", response_model=list[schemas.Recipe], tags=["users"])
+async def get_my_recipes(
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """List recipes created by the logged-in user."""
+    result = await db.execute(select(models.Recipe).filter(models.Recipe.user_id == user.id))
+    return result.scalars().all()
+
+
+# ──────────────────────────────────────────────────────────────
+# Favorites Endpoints
+# ──────────────────────────────────────────────────────────────
+
+@app.post("/users/me/favorites/{recipe_id}", status_code=201, tags=["favorites"])
+async def add_favorite(
+    recipe_id: int,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Add a recipe to your favorites."""
+    # Check if recipe already favorited via async query
+    result = await db.execute(
+        select(models.favorites_table).where(
+            models.favorites_table.c.user_id == user.id,
+            models.favorites_table.c.recipe_id == recipe_id,
+        )
+    )
+    existing_fav = result.first()
+    if existing_fav:
+        raise HTTPException(status_code=400, detail="Already in favorites")
+
+    # Add to favorites manually
+    await db.execute(
+        models.favorites_table.insert().values(user_id=user.id, recipe_id=recipe_id)
+    )
+    await db.commit()
+
+    return {"message": f"'{recipe.name}' added to favorites."}
+
+
+@app.delete("/users/me/favorites/{recipe_id}", status_code=204, tags=["favorites"])
+async def remove_favorite(
+    recipe_id: int,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Remove a recipe from your favorites."""
+    recipe = await db.get(models.Recipe, recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    result = await db.execute(
+        select(models.favorites_table).where(
+            models.favorites_table.c.user_id == user.id,
+            models.favorites_table.c.recipe_id == recipe_id,
+        )
+    )
+    if not result.first():
+        raise HTTPException(status_code=400, detail="Not in favorites")
+
+    await db.execute(
+        models.favorites_table.delete().where(
+            models.favorites_table.c.user_id == user.id,
+            models.favorites_table.c.recipe_id == recipe_id,
+        )
+    )
+    await db.commit()
+    return {"message": f"'{recipe.name}' removed from favorites."}
+
+
+@app.get("/users/me/favorites", response_model=list[schemas.Recipe], tags=["favorites"])
+async def list_favorites(
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """List all favorite recipes for the current user."""
+    result = await db.execute(
+        select(models.Recipe)
+        .join(models.favorites_table)
+        .where(models.favorites_table.c.user_id == user.id)
+    )
+    return result.scalars().all()
+
+
+# ──────────────────────────────────────────────────────────────
+# Utility
+# ──────────────────────────────────────────────────────────────
+
+def parse_brew_time(time_str: str) -> int:
+    """Convert brew time string (e.g. '2:30', '3m', '1h') to seconds."""
     if "-" in time_str:
-        
         time_str = time_str.split("-")[-1].strip()
-    
+
     if "h" in time_str:
-        hours = int(time_str.replace("h", "").strip())
-        return hours * 3600
-    
+        return int(time_str.replace("h", "").strip()) * 3600
+
     if ":" in time_str:
         minutes, seconds = time_str.split(":")
         return int(minutes) * 60 + int(seconds)
 
-    return int(time_str) * 60 
+    return int(time_str) * 60
