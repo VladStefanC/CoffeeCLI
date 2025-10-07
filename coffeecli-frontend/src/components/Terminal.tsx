@@ -1,8 +1,11 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, type JSX, use } from "react";
+import { COMMANDS } from "./commands";
+
+
 
 interface Line {
   type: "input" | "output";
-  text: string;
+  text: string | JSX.Element;
 }
 
 export default function Terminal() {
@@ -14,40 +17,41 @@ export default function Terminal() {
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
   // Scrolls to bottom when new lines appear
+  /*
+  useEffect(() => {
+    const el = terminalEndRef.current;
+    if (!el || !el.parentElement) return;
+
+    requestAnimationFrame(() => {
+      el.parentElement.scrollTo({
+        top: el.parentElement.scrollHeight,
+        behavior: lines.length > 0 ? "smooth" : "auto",
+      });
+    });
+  }, [lines]);*/
+
   useEffect(() => {
     terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [lines]);
 
-  // Core command handler
-  const handleCommand = (cmd: string) => {
-    const trimmed = cmd.trim().toLowerCase();
-    let output: string[] = [];
 
-    switch (trimmed) {
-      case "help":
-        output = [
-          "Available commands:",
-          "- help ........ show this message",
-          "- login ....... simulate login flow",
-          "- recipes ..... list all recipes",
-          "- favorites ... list favorite recipes",
-          "- clear ....... clear the screen",
-        ];
-        break;
-      case "clear":
-        setLines([]);
-        return;
-      case "login":
-        output = ["[Login command placeholder]"];
-        break;
-      default:
-        output = [`Command not found: ${trimmed}`];
+
+
+  /* Handles command input */
+  const handleCommand = (cmd: string) => {
+    const trimmed = cmd.toLowerCase().trim();
+
+    if (trimmed === "clear") {
+      setLines([]);
+      return;
     }
 
-    setLines((prev) => [
+    const CommandComponent = COMMANDS[trimmed] || COMMANDS["default"];
+
+    setLines((prev) => [ 
       ...prev,
       { type: "input", text: `coffee@cli:~$ ${cmd}` },
-      ...output.map<Line>((o) => ({ type: "output", text: o })),
+      { type: "output", text: <CommandComponent />  }, 
     ]);
   };
 
@@ -64,23 +68,26 @@ export default function Terminal() {
 
   return (
     <div
-      className="font-mono text-orange-400 text-base md:text-lg px-4 py-6 bg-transparent overflow-y-auto h-[400px] text-left flex flex-col items-start"
+      className="relative font-mono text-orange-400 p-6 text-left flex-grow w-full overflow-y-auto scrollbar-hide"
       style={{ whiteSpace: "pre-wrap" }}
+      ref={terminalEndRef}
     >
-      {lines.map((line, i) => (
-        <div key={i} className={line.type === "input" ? "text-orange-500" : ""}>
-          {line.text}
+      <div className="flex flex-col min-h-full justify-end">
+        {lines.map((line, i) => (
+          <div key={i}>{line.text}</div>
+        ))}
+        
+        <div className="flex mt-2">
+          <span className="text-orange-500">coffee@cli:~$&nbsp;</span>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            className="bg-transparent text-orange-400 outline-none w-full caret-orange-400"
+            autoFocus
+          />
         </div>
-      ))}
-      <div className="flex">
-        <span className="text-orange-500">coffee@cli:~$&nbsp;</span>
-        <input
-          className="bg-transparent outline-none text-orange-400 flex-1"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          autoFocus
-        />
       </div>
       <div ref={terminalEndRef} />
     </div>

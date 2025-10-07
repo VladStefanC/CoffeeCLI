@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi_users import FastAPIUsers
+from fastapi_users import FastAPIUsers, BaseUserManager
+from fastapi_users.jwt import generate_jwt
 from fastapi_users.authentication import JWTStrategy, AuthenticationBackend, BearerTransport
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -14,6 +15,8 @@ from api.database import get_async_session, init_db
 from api.users import get_user_manager
 from api import models, schemas, crud
 from api.models import User
+from fastapi import Response, APIRouter
+from fastapi.security import OAuth2PasswordRequestForm
 
 
 # ──────────────────────────────────────────────────────────────
@@ -21,10 +24,11 @@ from api.models import User
 # ──────────────────────────────────────────────────────────────
 
 load_dotenv()
+
 SECRET = os.getenv("SECRET")
 
 app = FastAPI(title="Coffee Recipes API", version="2.0")
-
+auth_router = APIRouter()
 # JWT authentication setup
 def get_jwt_strategy() -> JWTStrategy:
     return JWTStrategy(secret=SECRET, lifetime_seconds=3600)
@@ -66,6 +70,27 @@ app.include_router(
     tags=["users"],
 )
 
+@auth_router.post("/auth/cookie-login")
+async def cookie_login(
+    response: Response,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    user_manager: BaseUserManager = Depends(get_user_manager),
+):
+    user = await user_manager.authenticate(form_data)
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid credentials")
+
+    token = generate_jwt({"sub": str(user.id)}, SECRET, lifetime_seconds=3600)
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=False,  # True in production
+        samesite="Lax",
+        max_age=3600,
+    )
+    return {"message": "Login successful"}
+    
 
 
 # ──────────────────────────────────────────────────────────────
@@ -268,3 +293,6 @@ def parse_brew_time(time_str: str) -> int:
         return int(minutes) * 60 + int(seconds)
 
     return int(time_str) * 60
+
+
+app.include_router(auth_router)
