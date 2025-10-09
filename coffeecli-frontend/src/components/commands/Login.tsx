@@ -1,7 +1,10 @@
 import React, { useState } from "react";
 import api from "../../api/api";
+import { useAuth} from "../../context/AuthContext";
+
 
 const Login: React.FC = () => {
+  const { setUser } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -9,19 +12,23 @@ const Login: React.FC = () => {
   const handleLogin = async () => {
     try {
       await api.post(
-        "/auth/cookie-login",
+        "/auth/login",
         new URLSearchParams({
           username,
           password,
+         
         }),
-        { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+        {withCredentials : true},
+       // { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
       );
-
-      setMessage("✅ Logged in successfully (cookie set)");
+      const {data} = await api.get("/users/me");
+      setUser(data);
+      setMessage(`✅ Successfully logged in as ${data.username}!`);
     } catch (err: any) {
       setMessage(`❌ Login failed: ${err.response?.data?.detail || err.message}`);
     }
   };
+  
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {

@@ -17,6 +17,9 @@ from api import models, schemas, crud
 from api.models import User
 from fastapi import Response, APIRouter
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi_users.authentication import CookieTransport 
+from fastapi import Cookie
+from fastapi_users.jwt import decode_jwt
 
 
 # ──────────────────────────────────────────────────────────────
@@ -33,17 +36,22 @@ auth_router = APIRouter()
 def get_jwt_strategy() -> JWTStrategy:
     return JWTStrategy(secret=SECRET, lifetime_seconds=3600)
 
-bearer_transport = BearerTransport(tokenUrl="auth/jwt/login")
 
-jwt_auth_backend = AuthenticationBackend(
-    name="jwt",
-    transport=bearer_transport,
+cookie_transport = CookieTransport(
+    cookie_max_age=3600 * 24 * 7,
+    cookie_secure = False,
+    cookie_httponly=True,
+    cookie_samesite="lax")
+
+auth_backend = AuthenticationBackend(
+    name="cookie",
+    transport=cookie_transport,
     get_strategy=get_jwt_strategy,
 )
 
 fastapi_users = FastAPIUsers[User, uuid.UUID](
     get_user_manager,
-    [jwt_auth_backend],
+    [auth_backend],
 )
 
 current_user = fastapi_users.current_user()
@@ -53,8 +61,8 @@ current_user = fastapi_users.current_user()
 # ──────────────────────────────────────────────────────────────
 
 app.include_router(
-    fastapi_users.get_auth_router(jwt_auth_backend),
-    prefix="/auth/jwt",
+    fastapi_users.get_auth_router(auth_backend),
+    prefix="/auth",
     tags=["auth"],
 )
 
@@ -70,26 +78,10 @@ app.include_router(
     tags=["users"],
 )
 
-@auth_router.post("/auth/cookie-login")
-async def cookie_login(
-    response: Response,
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    user_manager: BaseUserManager = Depends(get_user_manager),
-):
-    user = await user_manager.authenticate(form_data)
-    if not user:
-        raise HTTPException(status_code=400, detail="Invalid credentials")
-
-    token = generate_jwt({"sub": str(user.id)}, SECRET, lifetime_seconds=3600)
-    response.set_cookie(
-        key="access_token",
-        value=token,
-        httponly=True,
-        secure=False,  # True in production
-        samesite="Lax",
-        max_age=3600,
-    )
-    return {"message": "Login successful"}
+@auth_router.post("/auth/logout")
+async def logout(response: Response):
+    cookie_transport.remove_login_cookie(response)
+    return {"message": "Logged out"}
     
 
 
@@ -274,6 +266,7 @@ async def list_favorites(
         .where(models.favorites_table.c.user_id == user.id)
     )
     return result.scalars().all()
+
 
 
 # ──────────────────────────────────────────────────────────────

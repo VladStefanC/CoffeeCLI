@@ -1,5 +1,7 @@
-import React, { useState, useRef, useEffect, type JSX, use } from "react";
+import React, { useState, useRef, useEffect, type JSX } from "react";
 import { COMMANDS } from "./commands";
+import { useAuth } from "../context/AuthContext";
+import { useTypingEffect } from "../hooks/useTypingEffect";
 
 
 
@@ -9,32 +11,31 @@ interface Line {
 }
 
 export default function Terminal() {
+  const { user } = useAuth();
+
+  const promptName = user?.username || "guest";
+  const animatedPrompt = useTypingEffect(promptName,150)
+
   const [lines, setLines] = useState<Line[]>([
     { type: "output", text: "Welcome to CoffeeCLI ☕" },
     { type: "output", text: "Type 'help' to get started." },
   ]);
   const [input, setInput] = useState("");
-  const terminalEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   // Scrolls to bottom when new lines appear
-  /*
+  
   useEffect(() => {
-    const el = terminalEndRef.current;
-    if (!el || !el.parentElement) return;
+    const bottom = bottomRef.current;
+    const behavior = lines.length > 0 ? "smooth" : "auto";
 
-    requestAnimationFrame(() => {
-      el.parentElement.scrollTo({
-        top: el.parentElement.scrollHeight,
-        behavior: lines.length > 0 ? "smooth" : "auto",
+    if (bottom) {
+      requestAnimationFrame(() => {
+        bottom.scrollIntoView({ behavior, block: "end" });
       });
-    });
-  }, [lines]);*/
-
-  useEffect(() => {
-    terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [lines]);
-
-
 
 
   /* Handles command input */
@@ -50,7 +51,7 @@ export default function Terminal() {
 
     setLines((prev) => [ 
       ...prev,
-      { type: "input", text: `coffee@cli:~$ ${cmd}` },
+      { type: "input", text: `${promptName}@coffeecli:~$ ${cmd}` },
       { type: "output", text: <CommandComponent />  }, 
     ]);
   };
@@ -70,15 +71,27 @@ export default function Terminal() {
     <div
       className="relative font-mono text-orange-400 p-6 text-left flex-grow w-full overflow-y-auto scrollbar-hide"
       style={{ whiteSpace: "pre-wrap" }}
-      ref={terminalEndRef}
+      ref={scrollContainerRef}
     >
+       
       <div className="flex flex-col min-h-full justify-end">
         {lines.map((line, i) => (
           <div key={i}>{line.text}</div>
         ))}
         
         <div className="flex mt-2">
-          <span className="text-orange-500">coffee@cli:~$&nbsp;</span>
+          
+          <span className="text-orange-400">
+            {user ? (
+              <span className="text-green-400">{animatedPrompt}</span>
+            ) : ( 
+              <span className="text-zinc-500">quest</span>
+            )}
+            @coffeecli:~$
+          </span>
+
+
+         
           <input
             type="text"
             value={input}
@@ -88,8 +101,10 @@ export default function Terminal() {
             autoFocus
           />
         </div>
+        <div ref={bottomRef} />
       </div>
-      <div ref={terminalEndRef} />
+     
     </div>
+    
   );
 }
