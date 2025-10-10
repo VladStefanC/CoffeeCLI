@@ -39,9 +39,9 @@ def get_jwt_strategy() -> JWTStrategy:
 
 cookie_transport = CookieTransport(
     cookie_max_age=3600 * 24 * 7,
-    cookie_secure = False,
+    cookie_secure = True, # development set it to False 
     cookie_httponly=True,
-    cookie_samesite="lax")
+    cookie_samesite="none") # development set it to lax 
 
 auth_backend = AuthenticationBackend(
     name="cookie",
@@ -91,7 +91,7 @@ async def logout(response: Response):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins = ["http://localhost:5173", "https://coffeecli-frontend.onrender.com"]
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
