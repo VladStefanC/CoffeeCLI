@@ -91,7 +91,10 @@ async def logout(response: Response):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins = ["http://localhost:5173", "https://coffeecli-frontend.onrender.com"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://coffeecli-cdcp.onrender.com/",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
