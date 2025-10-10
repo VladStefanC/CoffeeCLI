@@ -1,4 +1,4 @@
-import axios from "axios"
+import api from "../../api/api";
 import {useState} from "react"
 
 export function Register() {
@@ -10,13 +10,13 @@ export function Register() {
 
     const handleRegister = async () => {
         try { 
-            await axios.post('http://localhost:8000/auth/register', {
+            await api.post('http://localhost:8000/auth/register', {
                 username,
                 email,
                 password,
         });
             setMessage("Registration successful! You can now log in.");
-        }catch (error) {
+        }catch {
             setMessage("Registration failed. Please try again.");
         }
     };

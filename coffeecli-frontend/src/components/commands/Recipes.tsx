@@ -1,4 +1,4 @@
-import axios from "axios";
+
 import { useEffect, useState, useMemo, useRef } from "react";
 import api from "../../api/api";
 
@@ -22,8 +22,8 @@ export function Recipes() {
   const [filterTime, setFilterTime] = useState("");
 
   useEffect(() => {
-    axios
-      .get("http://localhost:8000/recipes")
+    api
+      .get("/recipes")
       .then((res) => setRecipes(res.data))
       .catch((err) => console.error("Error fetching recipes:", err))
       .finally(() => setLoading(false));

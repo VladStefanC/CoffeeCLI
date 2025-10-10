@@ -5,7 +5,7 @@ const api = axios.create({
     import.meta.env.VITE_API_URL ||
     (import.meta.env.DEV
       ? "http://localhost:8000"
-      : "https://coffeecli-api.onrender.com"), // <-- your backend Render URL
+      : "https://coffeecli.onrender.com"), // <-- your backend Render URL
   withCredentials: true,
 });
 
